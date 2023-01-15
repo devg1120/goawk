@@ -1,0 +1,3 @@
+ 2339  cd examples/
+ 2341  go build count_items.go 
+

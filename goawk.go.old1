@@ -1,0 +1,120 @@
+package goawk
+
+import (
+	//"fmt"
+	"bufio"
+	"flag"
+	"log"
+	"os"
+	"reflect"
+	"runtime"
+	//"strings"
+	"regexp"
+)
+
+type App struct {
+	Filename string // Input file name
+	Fs       string // Field separator
+	FsRegex  string // Field separator
+	MaxLines   int  // 
+	LineExtractionCondition bool
+	LineExtractionConditionRegex string
+	LineExtractionConditionRegexCompile *regexp.Regexp
+	FieldExtractionCondition bool
+	FieldExtractionConditionRegexMap map[int]string
+	S        []string // Input line
+	VS       map[string]string // Variables for string value
+	VI       map[string]int // Variables for int value
+}
+
+type Action func(app *App)
+
+func NewApp() *App{
+    return &App{
+        Fs       : " ",
+	FsRegex  : "\\s+",
+	MaxLines : 0,
+	LineExtractionCondition  : false,
+	FieldExtractionCondition : false,
+    }
+}
+
+func (app *App) Run(actions []Action) {
+	errLogger := log.New(os.Stderr, "", 0)
+	var fileName string 
+
+	flag.StringVar(&fileName, "i", "", "Input file name")
+	flag.Parse()
+
+	if len(fileName) == 0 {
+            //fmt.Fprintf(os.Stderr, "missing required -i\n")
+	    flag.Usage();
+            os.Exit(2) // the same exit code flag.Parse uses
+	}
+	app.Filename = fileName
+	//app.Fs = ","
+	app.VS = make(map[string]string)
+	app.VI = make(map[string]int)
+
+	firstActionName := runtime.FuncForPC(reflect.ValueOf(actions[0]).Pointer()).Name()
+	if firstActionName == "main.Begin" {
+		actions[0](app)
+		actions = actions[1:]
+	}
+
+	lengthOfActions := len(actions)
+	lastActionName := runtime.FuncForPC(reflect.ValueOf(actions[lengthOfActions-1:][0]).Pointer()).Name()
+	var endAction Action
+
+	if lastActionName == "main.End" {
+		endAction = actions[lengthOfActions-1:][0]
+		actions = actions[:lengthOfActions-1]
+	}
+
+	input, err := os.Open(fileName)
+	defer input.Close()
+	if err != nil {
+		errLogger.Println("Input file does not exist.")
+		os.Exit(1)
+	}
+
+	scanner := bufio.NewScanner(input)
+	var linecount int 
+	for scanner.Scan() {
+                //fmt.Fprintf(os.Stderr, "SCAN->%s\n", scanner.Text())
+		linecount++
+		if app.MaxLines > 0 && linecount > app.MaxLines { break }
+
+		if  app.LineExtractionCondition {
+                   if ! app.LineExtractionConditionRegexCompile.MatchString(scanner.Text()) {
+                       continue
+                   }
+           	}
+		app.S = nil
+		//app.S = append(app.S, scanner.Text())
+		//for _, elem := range strings.Split(scanner.Text(), app.Fs) {
+		for _, elem := range  regexp.MustCompile(app.FsRegex).Split(scanner.Text(), -1) {
+			//fmt.Fprintf(os.Stderr, " SPLIT:%s\n", elem)
+			app.S = append(app.S, elem)
+		}
+		for _, action := range actions {
+			action(app)
+		}
+	}
+
+	endAction(app)
+}
+
+func (app *App) P(pattern string) (bool, error) {
+    return regexp.MatchString(pattern, app.S[0])
+}
+
+func (app *App) SetLineExtractionCondition(pattern string)  {
+    app.LineExtractionCondition = true
+    app.LineExtractionConditionRegex = pattern
+    app.LineExtractionConditionRegexCompile = regexp.MustCompile(pattern)
+}
+
+func (app *App) SetFieldExtractionCondition(index int, pattern string)  {
+
+}
